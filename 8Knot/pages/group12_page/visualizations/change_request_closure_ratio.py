@@ -1,6 +1,8 @@
 from dash import html, dcc, callback
 import dash
+from dash import dcc
 import dash_bootstrap_components as dbc
+import dash_mantine_components as dmc
 from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import pandas as pd
@@ -14,19 +16,16 @@ from cache_manager.cache_manager import CacheManager as cm
 from pages.utils.job_utils import nodata_graph
 import time
 import datetime as dt
-import math
-import numpy as np
-
 
 PAGE = "chaoss_1"
-VIZ_ID = "change_request_closer_ratio"
+VIZ_ID = "change_request_closure_ratio"
 
-gc_release_frequency = dbc.Card(
+gc_change_request_closure_ratio = dbc.Card(
     [
         dbc.CardBody(
             [
                 html.H3(
-                    "Change Request Closer Ratio:",
+                    id=f"graph-title-{PAGE}-{VIZ_ID}",
                     className="card-title",
                     style={"textAlign": "center"},
                 ),
@@ -34,14 +33,21 @@ gc_release_frequency = dbc.Card(
                     [
                         dbc.PopoverHeader("Graph Info:"),
                         dbc.PopoverBody(
-                            """This visualization gives a view into the development speed of a repository in\n
-                            relation to the other selected repositories. For more context of this visualization see\n
-                            https://chaoss.community/kb/metric-project-velocity/ \n
-                            https://www.cncf.io/blog/2017/06/05/30-highest-velocity-open-source-projects/ """
+                            """
+                                        For a given action type, visualizes the proportional share of the top k anonymous
+                                        contributors, aggregating the remaining contributors as "Other". Suppose Contributor A
+                                        opens the most PRs of all contributors, accounting for 1/5 of all PRs. If k = 1,
+                                        then the chart will have one slice for Contributor A accounting for 1/5 of the area,
+                                        with the remaining 4/5 representing all other contributors. By default, contributors
+                                        who have 'potential-bot-filter' in their login are filtered out. Optionally, contributors
+                                        can be filtered out by their logins with custom keyword(s). Note: Some commits may have a
+                                        Contributor ID of 'None' if there is no Github account is associated with the email that
+                                        the contributor committed as.
+                                        """
                         ),
                     ],
                     id=f"popover-{PAGE}-{VIZ_ID}",
-                    target=f"popover-target-{PAGE}-{VIZ_ID}",
+                    target=f"popover-target-{PAGE}-{VIZ_ID}",  # needs to be the same as dbc.Button id
                     placement="top",
                     is_open=False,
                 ),
@@ -53,57 +59,58 @@ gc_release_frequency = dbc.Card(
                         dbc.Row(
                             [
                                 dbc.Label(
-                                    "Issue Opened Weight:",
-                                    html_for=f"issue-opened-weight-{PAGE}-{VIZ_ID}",
-                                    width={"size": "auto"},
-                                ),
-                                dbc.Col(
-                                    dbc.Input(
-                                        id=f"issue-opened-weight-{PAGE}-{VIZ_ID}",
-                                        type="number",
-                                        min=0,
-                                        max=1,
-                                        step=0.1,
-                                        value=0.3,
-                                        size="sm",
-                                    ),
-                                    className="me-2",
-                                    width=1,
-                                ),
-                                dbc.Label(
-                                    "Issue Closed Weight:",
-                                    html_for=f"issue-closed-weight-{PAGE}-{VIZ_ID}",
-                                    width={"size": "auto"},
-                                ),
-                                dbc.Col(
-                                    dbc.Input(
-                                        id=f"issue-closed-weight-{PAGE}-{VIZ_ID}",
-                                        type="number",
-                                        min=0,
-                                        max=1,
-                                        step=0.1,
-                                        value=0.4,
-                                        size="sm",
-                                    ),
-                                    className="me-2",
-                                    width=1,
-                                ),
-                                dbc.Label(
-                                    "Y-axis:",
-                                    html_for=f"graph-view-{PAGE}-{VIZ_ID}",
+                                    "Action Type:",
+                                    html_for=f"action-type-{PAGE}-{VIZ_ID}",
                                     width="auto",
                                 ),
                                 dbc.Col(
-                                    dbc.RadioItems(
-                                        id=f"graph-view-{PAGE}-{VIZ_ID}",
-                                        options=[
-                                            {"label": "Non-log", "value": False},
-                                            {"label": "Log", "value": True},
-                                        ],
-                                        value=False,
-                                        inline=True,
-                                    ),
+                                    [
+                                        dcc.Dropdown(
+                                            id=f"action-type-{PAGE}-{VIZ_ID}",
+                                            options=[
+                                                {"label": "Commit", "value": "Commit"},
+                                                {"label": "Issue Opened", "value": "Issue Opened"},
+                                                {"label": "Issue Comment", "value": "Issue Comment"},
+                                                {"label": "Issue Closed", "value": "Issue Closed"},
+                                                {"label": "PR Open", "value": "PR Open"},
+                                                {"label": "PR Review", "value": "PR Review"},
+                                                {"label": "PR Comment", "value": "PR Comment"},
+                                            ],
+                                            value="Commit",
+                                            clearable=False,
+                                        ),
+                                        dbc.Alert(
+                                            children="""No contributions of this type have been made.\n
+                                            Please select a different contribution type.""",
+                                            id=f"check-alert-{PAGE}-{VIZ_ID}",
+                                            dismissable=True,
+                                            fade=False,
+                                            is_open=False,
+                                            color="warning",
+                                        ),
+                                    ],
                                     className="me-2",
+                                    width=3,
+                                ),
+                                dbc.Label(
+                                    "Top K Contributors:",
+                                    html_for=f"top-k-contributors-{PAGE}-{VIZ_ID}",
+                                    width="auto",
+                                ),
+                                dbc.Col(
+                                    [
+                                        dbc.Input(
+                                            id=f"top-k-contributors-{PAGE}-{VIZ_ID}",
+                                            type="number",
+                                            min=2,
+                                            max=100,
+                                            step=1,
+                                            value=10,
+                                            size="sm",
+                                        ),
+                                    ],
+                                    className="me-2",
+                                    width=2,
                                 ),
                             ],
                             align="center",
@@ -111,58 +118,24 @@ gc_release_frequency = dbc.Card(
                         dbc.Row(
                             [
                                 dbc.Label(
-                                    "PR Open Weight:",
-                                    html_for=f"pr-open-weight-{PAGE}-{VIZ_ID}",
-                                    width={"size": "auto"},
+                                    "Filter Out Contributors with Keyword(s) in Login:",
+                                    html_for=f"patterns-{PAGE}-{VIZ_ID}",
+                                    width="auto",
                                 ),
                                 dbc.Col(
-                                    dbc.Input(
-                                        id=f"pr-open-weight-{PAGE}-{VIZ_ID}",
-                                        type="number",
-                                        min=0,
-                                        max=1,
-                                        step=0.1,
-                                        value=0.5,
-                                        size="sm",
-                                    ),
+                                    [
+                                        dmc.MultiSelect(
+                                            id=f"patterns-{PAGE}-{VIZ_ID}",
+                                            placeholder="Bot filter values",
+                                            data=[
+                                                {"value": "bot", "label": "bot"},
+                                            ],
+                                            classNames={"values": "dmc-multiselect-custom"},
+                                            creatable=True,
+                                            searchable=True,
+                                        ),
+                                    ],
                                     className="me-2",
-                                    width=1,
-                                ),
-                                dbc.Label(
-                                    "PR Merged Weight:",
-                                    html_for=f"pr-merged-weight-{PAGE}-{VIZ_ID}",
-                                    width={"size": "auto"},
-                                ),
-                                dbc.Col(
-                                    dbc.Input(
-                                        id=f"pr-merged-weight-{PAGE}-{VIZ_ID}",
-                                        type="number",
-                                        min=0,
-                                        max=1,
-                                        step=0.1,
-                                        value=0.7,
-                                        size="sm",
-                                    ),
-                                    className="me-2",
-                                    width=1,
-                                ),
-                                dbc.Label(
-                                    "PR Closed Weight:",
-                                    html_for=f"pr-closed-weight-{PAGE}-{VIZ_ID}",
-                                    width={"size": "auto"},
-                                ),
-                                dbc.Col(
-                                    dbc.Input(
-                                        id=f"pr-closed-weight-{PAGE}-{VIZ_ID}",
-                                        type="number",
-                                        min=0,
-                                        max=1,
-                                        step=0.1,
-                                        value=0.2,
-                                        size="sm",
-                                    ),
-                                    className="me-2",
-                                    width=1,
                                 ),
                             ],
                             align="center",
@@ -170,22 +143,25 @@ gc_release_frequency = dbc.Card(
                         dbc.Row(
                             [
                                 dbc.Col(
-                                    dcc.DatePickerRange(
-                                        id=f"date-picker-range-{PAGE}-{VIZ_ID}",
-                                        min_date_allowed=dt.date(2005, 1, 1),
-                                        max_date_allowed=dt.date.today(),
-                                        initial_visible_month=dt.date(dt.date.today().year, 1, 1),
-                                        clearable=True,
-                                    ),
-                                    width="auto",
+                                    [
+                                        dcc.DatePickerRange(
+                                            id=f"date-picker-range-{PAGE}-{VIZ_ID}",
+                                            min_date_allowed=dt.date(2005, 1, 1),
+                                            max_date_allowed=dt.date.today(),
+                                            initial_visible_month=dt.date(dt.date.today().year, 1, 1),
+                                            clearable=True,
+                                        ),
+                                    ],
                                 ),
                                 dbc.Col(
-                                    dbc.Button(
-                                        "About Graph",
-                                        id=f"popover-target-{PAGE}-{VIZ_ID}",
-                                        color="secondary",
-                                        size="sm",
-                                    ),
+                                    [
+                                        dbc.Button(
+                                            "About Graph",
+                                            id=f"popover-target-{PAGE}-{VIZ_ID}",
+                                            color="secondary",
+                                            size="sm",
+                                        ),
+                                    ],
                                     width="auto",
                                     style={"paddingTop": ".5em"},
                                 ),
@@ -200,7 +176,6 @@ gc_release_frequency = dbc.Card(
     ],
 )
 
-
 # callback for graph info popover
 @callback(
     Output(f"popover-{PAGE}-{VIZ_ID}", "is_open"),
@@ -213,26 +188,32 @@ def toggle_popover(n, is_open):
     return is_open
 
 
-# callback for Project Velocity graph
+# callback for dynamically changing the graph title
+@callback(
+    Output(f"graph-title-{PAGE}-{VIZ_ID}", "children"),
+    Input(f"top-k-contributors-{PAGE}-{VIZ_ID}", "value"),
+    Input(f"action-type-{PAGE}-{VIZ_ID}", "value"),
+)
+def graph_title(k, action_type):
+    title = f"Change Request Closure Ratio:"
+    return title
+
+
+# callback for contrib-importance graph
 @callback(
     Output(f"{PAGE}-{VIZ_ID}", "figure"),
+    Output(f"check-alert-{PAGE}-{VIZ_ID}", "is_open"),
     [
         Input("repo-choices", "data"),
-        Input(f"graph-view-{PAGE}-{VIZ_ID}", "value"),
-        Input(f"issue-opened-weight-{PAGE}-{VIZ_ID}", "value"),
-        Input(f"issue-closed-weight-{PAGE}-{VIZ_ID}", "value"),
-        Input(f"pr-open-weight-{PAGE}-{VIZ_ID}", "value"),
-        Input(f"pr-merged-weight-{PAGE}-{VIZ_ID}", "value"),
-        Input(f"pr-closed-weight-{PAGE}-{VIZ_ID}", "value"),
+        Input(f"action-type-{PAGE}-{VIZ_ID}", "value"),
+        Input(f"top-k-contributors-{PAGE}-{VIZ_ID}", "value"),
+        Input(f"patterns-{PAGE}-{VIZ_ID}", "value"),
         Input(f"date-picker-range-{PAGE}-{VIZ_ID}", "start_date"),
         Input(f"date-picker-range-{PAGE}-{VIZ_ID}", "end_date"),
     ],
     background=True,
 )
-def project_velocity_graph(
-    repolist, log, i_o_weight, i_c_weight, pr_o_weight, pr_m_weight, pr_c_weight, start_date, end_date
-):
-
+def create_top_k_cntrbs_graph(repolist, action_type, top_k, patterns, start_date, end_date):
     # wait for data to asynchronously download and become available.
     cache = cm()
     df = cache.grabm(func=ctq, repos=repolist)
@@ -246,33 +227,27 @@ def project_velocity_graph(
     # test if there is data
     if df.empty:
         logging.warning(f"{VIZ_ID} - NO DATA AVAILABLE")
-        return nodata_graph
+        return nodata_graph, False
+
+    # checks if there is a contribution of a specfic action type in repo set
+    if not df["Action"].str.contains(action_type).any():
+        return dash.no_update, True
 
     # function for all data pre processing
-    df = process_data(df, start_date, end_date, i_o_weight, i_c_weight, pr_o_weight, pr_m_weight, pr_c_weight)
+    df = process_data(df, action_type, top_k, patterns, start_date, end_date)
 
-    fig = create_figure(df, log)
+    fig = create_figure(df, action_type)
 
     logging.warning(f"{VIZ_ID} - END - {time.perf_counter() - start}")
-    return fig
+    return fig, False
 
 
-def process_data(
-    df: pd.DataFrame,
-    start_date,
-    end_date,
-    i_o_weight,
-    i_c_weight,
-    pr_o_weight,
-    pr_m_weight,
-    pr_c_weight,
-):
-
+def process_data(df: pd.DataFrame, action_type, top_k, patterns, start_date, end_date):
     # convert to datetime objects rather than strings
     df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
 
-    # order values chronologically by COLUMN_TO_SORT_BY date
-    df = df.sort_values(by="created_at", axis=0, ascending=True)
+    # order values chronologically by created_at date
+    df = df.sort_values(by="created_at", ascending=True)
 
     # filter values based on date picker
     if start_date is not None:
@@ -280,71 +255,61 @@ def process_data(
     if end_date is not None:
         df = df[df.created_at <= end_date]
 
-    # df to hold value of unique contributors for each repo
-    df_cntrbs = pd.DataFrame(df.groupby("repo_name")["cntrb_id"].nunique()).rename(
-        columns={"cntrb_id": "num_unique_contributors"}
-    )
+    # subset the df such that it only contains rows where the Action column value is the action type
+    df = df[df["Action"].str.contains(action_type)]
 
-    # group actions and repos to get the counts of the actions by repo
-    df_actions = pd.DataFrame(df.groupby("repo_name")["Action"].value_counts())
-    df_actions = df_actions.rename(columns={"Action": "count"}).reset_index()
+    # option to filter out potential bots
+    if patterns:
+        # remove rows where login column value contains any keyword in patterns
+        patterns_mask = df["login"].str.contains("|".join(patterns), na=False)
+        df = df[~patterns_mask]
 
-    # pivot df to reformat the actions to be columns and repo_id to be rows
-    df_actions = df_actions.pivot(index="repo_name", columns="Action", values="count")
+    # count the number of contributions for each contributor
+    df = (df.groupby("cntrb_id")["Action"].count()).to_frame()
 
-    # df_consolidated combines the actions and unique contributors and then specific columns for visualization use are added on
-    df_consolidated = pd.concat([df_actions, df_cntrbs], axis=1).reset_index()
+    # sort rows according to amount of contributions from greatest to least
+    df.sort_values(by="cntrb_id", ascending=False, inplace=True)
+    df = df.reset_index()
 
-    # log of commits and contribs
-    df_consolidated["log_num_commits"] = df_consolidated["Commit"].apply(math.log)
-    df_consolidated["log_num_contrib"] = df_consolidated["num_unique_contributors"].apply(math.log)
+    # rename Action column to action_type
+    df = df.rename(columns={"Action": action_type})
 
-    # column to hold the weighted values of pr and issues actions summed together
-    df_consolidated["prs_issues_actions_weighted"] = (
-        df_consolidated["Issue Opened"] * i_o_weight
-        + df_consolidated["Issue Closed"] * i_c_weight
-        + df_consolidated["PR Opened"] * pr_o_weight
-        + df_consolidated["PR Merged"] * pr_m_weight
-        + df_consolidated["PR Closed"] * pr_c_weight
-    )
+    # get the number of total contributions
+    t_sum = df[action_type].sum()
 
-    # column for log value of pr and issue actions
-    df_consolidated["log_prs_issues_actions_weighted"] = df_consolidated["prs_issues_actions_weighted"].apply(math.log)
+    # index df to get first k rows
+    df = df.head(top_k)
 
-    return df_consolidated
+    # convert cntrb_id from type UUID to String
+    df["cntrb_id"] = df["cntrb_id"].apply(lambda x: str(x).split("-")[0])
+
+    # get the number of total top k contributions
+    df_sum = df[action_type].sum()
+
+    # calculate the remaining contributions by taking the the difference of t_sum and df_sum
+    df = df.append({"cntrb_id": "Other", action_type: t_sum - df_sum}, ignore_index=True)
+
+    return df
 
 
-def create_figure(df: pd.DataFrame, log):
-
-    y_axis = "prs_issues_actions_weighted"
-    y_title = "Weighted PR/Issue Actions"
-    if log:
-        y_axis = "log_prs_issues_actions_weighted"
-        y_title = "Log of Weighted PR/Issue Actions"
-
-    # graph generation
-    fig = px.scatter(
+def create_figure(df: pd.DataFrame, action_type):
+    # create plotly express pie chart
+    fig = px.pie(
         df,
-        x="log_num_commits",
-        y=y_axis,
-        color="repo_name",
-        size="log_num_contrib",
-        hover_data=["repo_name", "Commit", "PR Opened", "Issue Opened", "num_unique_contributors"],
+        names="cntrb_id",  # can be replaced with login to unanonymize
+        values=action_type,
         color_discrete_sequence=color_seq,
     )
 
+    # display percent contributions and cntrb_id in each wedge
+    # format hover template to display cntrb_id and the number of their contributions according to the action_type
     fig.update_traces(
-        hovertemplate="Repo: %{customdata[0]} <br>Commits: %{customdata[1]} <br>Total PRs: %{customdata[2]}"
-        + "<br>Total Issues: %{customdata[3]} <br>Total Contributors: %{customdata[4]}<br><extra></extra>",
+        textinfo="percent+label",
+        textposition="inside",
+        hovertemplate="Contributor ID: %{label} <br>Contributions: %{value}<br><extra></extra>",
     )
 
-    # layout styling
-    fig.update_layout(
-        xaxis_title="Logarithmic Commits",
-        yaxis_title=y_title,
-        margin_b=40,
-        font=dict(size=14),
-        legend_title="Repo Name",
-    )
+    # add legend title
+    fig.update_layout(legend_title_text="Contributor ID")
 
     return fig
