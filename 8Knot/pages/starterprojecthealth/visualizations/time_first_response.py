@@ -27,7 +27,7 @@ gc_time_first_response = dbc.Card(
         dbc.CardBody(
             [
                 html.H3(
-                    "Change Request Review Duration",
+                    "Time to First Response",
                     className="card-title",
                     style={"textAlign": "center"},
                 ),
@@ -37,7 +37,8 @@ gc_time_first_response = dbc.Card(
                         dbc.PopoverBody(
                             """The Time to First Response metric measures the time from when a submitter has submitted a change within a review cycle until it is first acted upon by a human.\n
                             This metric measures the first review, however, there may be multiple reviews within a Review Cycle Duration within a Change Request and this measures time of each review.\n
-                            The Time to First Response metric is a good indicator of how quickly a change is being reviewed and acted upon.\n"""
+                            The Time to First Response metric is a good indicator of how quickly a change is being reviewed and acted upon.\n
+                            https://chaoss.community/kb/metric-time-to-first-response/"""
                         ),
                     ],
                     id=f"popover-{PAGE}-{VIZ_ID}",
